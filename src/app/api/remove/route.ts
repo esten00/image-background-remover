@@ -1,7 +1,7 @@
 // src/app/api/remove/route.ts
-export const runtime = 'edge';
+import { NextRequest } from 'next/server';
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const imageFile = formData.get('image') as File;
@@ -10,61 +10,41 @@ export async function POST(request: Request) {
       return Response.json({ success: false, error: 'No image file provided' }, { status: 400 });
     }
 
-    // Validate file type
     if (!imageFile.type.startsWith('image/')) {
       return Response.json({ success: false, error: 'File is not an image' }, { status: 400 });
     }
 
-    // Validate file size (max 5MB)
     if (imageFile.size > 5 * 1024 * 1024) {
       return Response.json({ success: false, error: 'Image size exceeds 5MB limit' }, { status: 400 });
     }
 
-    // Convert File to ArrayBuffer then to base64
     const buffer = await imageFile.arrayBuffer();
-    const base64Image = btoa(
-      new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-    );
+    const base64Image = Buffer.from(buffer).toString('base64');
 
-    // Create form data for remove.bg API
+    const apiKey = process.env.REMOVEBG_API_KEY;
+    if (!apiKey) {
+      return Response.json({ success: false, error: 'API key not configured' }, { status: 500 });
+    }
+
     const apiFormData = new FormData();
     apiFormData.append('image_file_b64', base64Image);
     apiFormData.append('size', 'auto');
 
-    // Call remove.bg API
     const response = await fetch('https://api.remove.bg/v1.0/removebg', {
       method: 'POST',
-      headers: {
-        'X-Api-Key': process.env.REMOVEBG_API_KEY || '',
-      },
+      headers: { 'X-Api-Key': apiKey },
       body: apiFormData,
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      return Response.json({ 
-        success: false, 
-        error: `API request failed: ${response.status} ${errorText}` 
-      }, { status: 500 });
+      return Response.json({ success: false, error: `API error: ${response.status}` }, { status: 500 });
     }
 
-    // Get the processed image as ArrayBuffer
     const resultBuffer = await response.arrayBuffer();
+    const base64Result = Buffer.from(resultBuffer).toString('base64');
     
-    // Convert to base64 for client-side display
-    const base64Result = btoa(
-      new Uint8Array(resultBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-    );
-    
-    return Response.json({ 
-      success: true, 
-      imageUrl: `data:image/png;base64,${base64Result}` 
-    });
+    return Response.json({ success: true, imageUrl: `data:image/png;base64,${base64Result}` });
   } catch (error: any) {
-    console.error('Error processing image:', error);
-    return Response.json({ 
-      success: false, 
-      error: error.message || 'Failed to process image' 
-    }, { status: 500 });
+    return Response.json({ success: false, error: error.message || 'Failed to process image' }, { status: 500 });
   }
 }
